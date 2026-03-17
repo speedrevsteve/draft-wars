@@ -139,7 +139,7 @@ export default function Home() {
                   }}
                   onClick={() => setCreateForm({ ...createForm, seriesLength: n })}
                 >
-                  {n === 1 ? 'Bo1' : 'Bo' + n}
+                  {n === 1 ? 'Best of 1' : 'Best of ' + n}
                 </div>
               ))}
             </div>
