@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 
-const API = 'http://localhost:3001'
+const API = 'https://draft-wars-server.onrender.com'
 
 const POS_COLORS = {
   QB: { bg: '#3a1a1a', color: '#ff6b6b' },

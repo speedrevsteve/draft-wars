@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import axios from 'axios'
 import { useNavigate } from 'react-router-dom'
 
-const API = 'http://localhost:3001'
+const API = 'https://draft-wars-server.onrender.com'
 
 const styles = {
   container: {

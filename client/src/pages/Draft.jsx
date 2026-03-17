@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { io } from 'socket.io-client'
 
-const API = 'http://localhost:3001'
+const API = 'https://draft-wars-server.onrender.com'
 
 const styles = {
   page: { minHeight: '100vh', background: '#0f0f0f', display: 'flex', flexDirection: 'column' },
