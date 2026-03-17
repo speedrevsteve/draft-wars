@@ -44,7 +44,7 @@ const styles = {
   totalScore: { padding: '12px 16px', borderTop: '1px solid #333', fontSize: '13px', color: '#999', display: 'flex', justifyContent: 'space-between' },
   totalPts: { color: '#c9a84c', fontWeight: '700', fontSize: '15px' },
   modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
-  modalCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', padding: '28px', maxWidth: '360px', width: '90%', textAlign: 'center' },
+  modalCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', padding: '28px', maxWidth: '400px', width: '90%', textAlign: 'center' },
   modalTitle: { fontSize: '20px', fontWeight: '700', color: '#c9a84c', marginBottom: '8px' },
   modalSub: { fontSize: '14px', color: '#999', marginBottom: '20px', lineHeight: '1.6' },
   confirmBtn: { width: '100%', padding: '12px', borderRadius: '8px', background: '#c9a84c', color: '#0f0f0f', fontWeight: '700', fontSize: '15px', border: 'none', cursor: 'pointer' },
@@ -52,6 +52,14 @@ const styles = {
   autoPick: { background: '#2a1a2a' },
   toggleBtn: { padding: '3px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', cursor: 'pointer', border: '1px solid #444', background: 'transparent', color: '#888' },
   toggleBtnOn: { border: '1px solid #c9a84c', color: '#c9a84c' },
+  seriesScore: { display: 'flex', gap: '16px', alignItems: 'center' },
+  seriesItem: { textAlign: 'center' },
+  seriesWins: { fontSize: '22px', fontWeight: '800', color: '#c9a84c' },
+  seriesName: { fontSize: '10px', color: '#666', textTransform: 'uppercase' },
+  gameCompleteOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 },
+  gameCompleteCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', padding: '32px', maxWidth: '400px', width: '90%', textAlign: 'center' },
+  nextGameBtn: { width: '100%', padding: '14px', borderRadius: '8px', background: '#c9a84c', color: '#0f0f0f', fontWeight: '700', fontSize: '16px', border: 'none', cursor: 'pointer', marginTop: '8px' },
+  waitingNextBtn: { width: '100%', padding: '14px', borderRadius: '8px', background: '#222', color: '#666', fontWeight: '600', fontSize: '15px', border: 'none', marginTop: '8px' },
 }
 
 const POS_COLORS = {
@@ -91,9 +99,13 @@ export default function Draft() {
   const [timer, setTimer] = useState(60)
   const [selectedPlayer, setSelectedPlayer] = useState(null)
   const [showPoints, setShowPoints] = useState(false)
+  const [gameNumber, setGameNumber] = useState(1)
+  const [seriesWins, setSeriesWins] = useState({})
+  const [gameCompleteData, setGameCompleteData] = useState(null)
   const timerRef = useRef(null)
   const lobbyRef = useRef(null)
   const currentTurnRef = useRef(null)
+  const gameNumberRef = useRef(1)
 
   const isMyTurn = currentTurn === username
 
@@ -117,9 +129,26 @@ export default function Draft() {
       }
     })
 
-    socket.on('draft_complete', (data) => {
+    socket.on('game_complete', (data) => {
+      clearInterval(timerRef.current)
+      setSeriesWins(data.seriesWins)
+      setGameCompleteData(data)
+    })
+
+    socket.on('series_complete', (data) => {
+      clearInterval(timerRef.current)
       sessionStorage.setItem('finalScores', JSON.stringify(data.scores))
+      sessionStorage.setItem('seriesWins', JSON.stringify(data.seriesWins))
+      sessionStorage.setItem('seriesWinner', data.seriesWinner)
       navigate('/results/' + code)
+    })
+
+    socket.on('next_game_started', (data) => {
+      setGameCompleteData(null)
+      setGameNumber(data.gameNumber)
+      gameNumberRef.current = data.gameNumber
+      setPicks([])
+      fetchDraftState()
     })
 
     return () => {
@@ -151,7 +180,8 @@ export default function Draft() {
         username: turnUsername,
         lobbyId: lobbyRef.current.id,
         rosterFormat: lobbyRef.current.roster_format,
-        timerSeconds: seconds
+        timerSeconds: seconds,
+        gameNumber: gameNumberRef.current
       })
     }
   }
@@ -166,6 +196,18 @@ export default function Draft() {
       setCurrentTurn(res.data.currentTurn)
       currentTurnRef.current = res.data.currentTurn
       setTotalPicksNeeded(res.data.totalPicksNeeded)
+      setGameNumber(res.data.gameNumber || 1)
+      gameNumberRef.current = res.data.gameNumber || 1
+
+      const p1 = res.data.players[0]
+      const p2 = res.data.players[1]
+      if (p1 && p2) {
+        setSeriesWins({
+          [p1.username]: res.data.lobby.series_wins_p1,
+          [p2.username]: res.data.lobby.series_wins_p2
+        })
+      }
+
       if (res.data.lobby && res.data.currentTurn) {
         startTimer(res.data.lobby.timer_seconds, res.data.currentTurn)
       }
@@ -205,8 +247,20 @@ export default function Draft() {
   async function confirmPick() {
     if (!selectedPlayer) return
     if (socketRef.current) socketRef.current.emit('cancel_timer', { code })
-    socketRef.current.emit('submit_pick', { code, username, playerId: selectedPlayer.player_id })
+    socketRef.current.emit('submit_pick', {
+      code, username,
+      playerId: selectedPlayer.player_id,
+      gameNumber: gameNumberRef.current
+    })
     setSelectedPlayer(null)
+  }
+
+  async function startNextGame() {
+    try {
+      await axios.post(API + '/lobby/next-game', { code, username })
+    } catch (err) {
+      console.error(err)
+    }
   }
 
   function isDrafted(playerId) {
@@ -254,12 +308,30 @@ export default function Draft() {
   const rosterSlots = getRosterSlots()
   const myScore = getMyScore()
   const isDraftComplete = picks.length >= totalPicksNeeded
+  const isCreator = lobby.created_by === username
+  const seriesLength = lobby.series_length || 1
+  const winsNeeded = Math.ceil(seriesLength / 2)
 
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <div style={styles.headerTitle}>Draft Wars - {code}</div>
+        <div style={styles.headerTitle}>
+          Draft Wars — Game {gameNumber}{seriesLength > 1 ? ' of ' + seriesLength : ''}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          {seriesLength > 1 && players.length === 2 && (
+            <div style={styles.seriesScore}>
+              <div style={styles.seriesItem}>
+                <div style={styles.seriesWins}>{seriesWins[players[0]?.username] || 0}</div>
+                <div style={styles.seriesName}>{players[0]?.username}</div>
+              </div>
+              <div style={{ color: '#444', fontSize: '18px' }}>—</div>
+              <div style={styles.seriesItem}>
+                <div style={styles.seriesWins}>{seriesWins[players[1]?.username] || 0}</div>
+                <div style={styles.seriesName}>{players[1]?.username}</div>
+              </div>
+            </div>
+          )}
           <div style={styles.headerInfo}>
             {lobby.mode === 'best_game' ? 'Best Game' : 'Best Season'} · {lobby.roster_format}
           </div>
@@ -294,26 +366,15 @@ export default function Draft() {
             </button>
           </div>
           <div style={styles.searchBar}>
-            <input
-              style={styles.searchInput}
-              placeholder="Search players..."
-              value={search}
-              onChange={handleSearch}
-            />
+            <input style={styles.searchInput} placeholder="Search players..." value={search} onChange={handleSearch} />
           </div>
           <div style={styles.filterRow}>
             {['ALL','QB','RB','WR','TE','K','DEF'].map(pos => (
-              <button
-                key={pos}
-                style={{
-                  ...styles.filterBtn,
-                  background: posFilter === pos ? '#c9a84c' : '#222',
-                  color: posFilter === pos ? '#0f0f0f' : '#999',
-                }}
-                onClick={() => handleFilter(pos)}
-              >
-                {pos}
-              </button>
+              <button key={pos} style={{
+                ...styles.filterBtn,
+                background: posFilter === pos ? '#c9a84c' : '#222',
+                color: posFilter === pos ? '#0f0f0f' : '#999',
+              }} onClick={() => handleFilter(pos)}>{pos}</button>
             ))}
           </div>
           <div style={styles.playerList}>
@@ -321,15 +382,11 @@ export default function Draft() {
               const drafted = isDrafted(player.player_id)
               const posStyle = POS_COLORS[player.position] || POS_COLORS.FLEX
               return (
-                <div
-                  key={player.player_id}
-                  style={{
-                    ...styles.playerRow,
-                    ...(drafted ? styles.draftedOverlay : {}),
-                    background: selectedPlayer?.player_id === player.player_id ? '#2a2a1a' : 'transparent',
-                  }}
-                  onClick={() => handleSelectPlayer(player)}
-                >
+                <div key={player.player_id} style={{
+                  ...styles.playerRow,
+                  ...(drafted ? styles.draftedOverlay : {}),
+                  background: selectedPlayer?.player_id === player.player_id ? '#2a2a1a' : 'transparent',
+                }} onClick={() => handleSelectPlayer(player)}>
                   <div style={{ ...styles.playerPos, background: posStyle.bg, color: posStyle.color }}>
                     {player.position}
                   </div>
@@ -337,11 +394,9 @@ export default function Draft() {
                     <div style={styles.playerName}>{player.name}</div>
                     <div style={styles.playerMeta}>{player.team}{drafted ? ' · Drafted' : ''}</div>
                   </div>
-                  {showPoints ? (
-                    <div style={styles.playerPts}>{player[scoringKey]?.toFixed(1)}</div>
-                  ) : (
-                    <div style={styles.playerPtsHidden}>••••</div>
-                  )}
+                  {showPoints
+                    ? <div style={styles.playerPts}>{player[scoringKey]?.toFixed(1)}</div>
+                    : <div style={styles.playerPtsHidden}>••••</div>}
                 </div>
               )
             })}
@@ -359,15 +414,7 @@ export default function Draft() {
               return (
                 <div key={i} style={{ ...styles.pickRow, ...(pick.isAutoPick ? styles.autoPick : {}) }}>
                   <div style={styles.pickNum}>#{i + 1}</div>
-                  <div style={{
-                    ...styles.playerPos,
-                    background: posStyle.bg,
-                    color: posStyle.color,
-                    width: '30px',
-                    height: '30px',
-                    fontSize: '10px',
-                    flexShrink: 0
-                  }}>
+                  <div style={{ ...styles.playerPos, background: posStyle.bg, color: posStyle.color, width: '30px', height: '30px', fontSize: '10px', flexShrink: 0 }}>
                     {pos}
                   </div>
                   <div style={styles.pickName}>
@@ -379,9 +426,7 @@ export default function Draft() {
               )
             })}
             {picks.length === 0 && (
-              <div style={{ padding: '20px', color: '#444', textAlign: 'center', fontSize: '13px' }}>
-                No picks yet
-              </div>
+              <div style={{ padding: '20px', color: '#444', textAlign: 'center', fontSize: '13px' }}>No picks yet</div>
             )}
           </div>
         </div>
@@ -393,17 +438,11 @@ export default function Draft() {
           </div>
           {rosterSlots.map(({ slot, pick }, i) => (
             <div key={i} style={styles.rosterSlot}>
-              <div style={{ ...styles.slotLabel, color: (POS_COLORS[slot] || POS_COLORS.FLEX).color }}>
-                {slot}
-              </div>
+              <div style={{ ...styles.slotLabel, color: (POS_COLORS[slot] || POS_COLORS.FLEX).color }}>{slot}</div>
               {pick ? (
                 <React.Fragment>
                   <div style={styles.slotPlayer}>{pick.playerName || pick.player_cache?.name}</div>
-                  {showPoints && (
-                    <div style={styles.slotPts}>
-                      {pick.player_cache ? pick.player_cache[scoringKey]?.toFixed(1) : ''}
-                    </div>
-                  )}
+                  {showPoints && <div style={styles.slotPts}>{pick.player_cache ? pick.player_cache[scoringKey]?.toFixed(1) : ''}</div>}
                 </React.Fragment>
               ) : (
                 <div style={styles.slotEmpty}>Empty</div>
@@ -431,6 +470,41 @@ export default function Draft() {
             </div>
             <button style={styles.confirmBtn} onClick={confirmPick}>Draft {selectedPlayer.name}</button>
             <button style={styles.cancelBtn} onClick={() => setSelectedPlayer(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {gameCompleteData && (
+        <div style={styles.gameCompleteOverlay}>
+          <div style={styles.gameCompleteCard}>
+            <div style={{ fontSize: '14px', color: '#888', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Game {gameCompleteData.gameNumber} Complete
+            </div>
+            <div style={{ fontSize: '26px', fontWeight: '800', color: '#c9a84c', marginBottom: '16px' }}>
+              {gameCompleteData.gameWinner
+                ? (gameCompleteData.gameWinner === username ? 'You won!' : gameCompleteData.gameWinner + ' won!')
+                : "It's a tie!"}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '32px', marginBottom: '24px' }}>
+              {players.map(p => (
+                <div key={p.username} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '28px', fontWeight: '800', color: '#c9a84c' }}>
+                    {seriesWins[p.username] || 0}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#666' }}>{p.username}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+              First to {winsNeeded} wins takes the series
+            </div>
+            {isCreator ? (
+              <button style={styles.nextGameBtn} onClick={startNextGame}>
+                Start Game {gameCompleteData.nextGame} →
+              </button>
+            ) : (
+              <div style={styles.waitingNextBtn}>Waiting for host to start next game...</div>
+            )}
           </div>
         </div>
       )}

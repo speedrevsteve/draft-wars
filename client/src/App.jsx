@@ -3,6 +3,7 @@ import Home from './pages/Home.jsx'
 import Lobby from './pages/Lobby.jsx'
 import Draft from './pages/Draft.jsx'
 import Results from './pages/Results.jsx'
+import Profile from './pages/Profile.jsx'
 import './index.css'
 
 function App() {
@@ -13,6 +14,7 @@ function App() {
         <Route path="/lobby/:code" element={<Lobby />} />
         <Route path="/draft/:code" element={<Draft />} />
         <Route path="/results/:code" element={<Results />} />
+        <Route path="/profile/:username" element={<Profile />} />
       </Routes>
     </BrowserRouter>
   )

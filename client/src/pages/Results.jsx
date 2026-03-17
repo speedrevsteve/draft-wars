@@ -16,14 +16,19 @@ const POS_COLORS = {
 const styles = {
   page: { minHeight: '100vh', background: '#0f0f0f', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' },
   title: { fontSize: '36px', fontWeight: '800', color: '#c9a84c', marginBottom: '8px', textAlign: 'center' },
-  subtitle: { fontSize: '16px', color: '#666', marginBottom: '40px', textAlign: 'center' },
-  winnerBanner: { background: '#1a2a1a', border: '1px solid #4caf50', borderRadius: '12px', padding: '20px 32px', textAlign: 'center', marginBottom: '32px', width: '100%', maxWidth: '600px' },
-  winnerLabel: { fontSize: '12px', color: '#4caf50', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' },
-  winnerName: { fontSize: '28px', fontWeight: '800', color: '#f0f0f0' },
-  winnerScore: { fontSize: '16px', color: '#4caf50', marginTop: '4px' },
-  tieLabel: { fontSize: '22px', fontWeight: '700', color: '#c9a84c' },
+  subtitle: { fontSize: '16px', color: '#666', marginBottom: '32px', textAlign: 'center' },
+  seriesBanner: { background: '#1a2a1a', border: '1px solid #4caf50', borderRadius: '12px', padding: '20px 32px', textAlign: 'center', marginBottom: '24px', width: '100%', maxWidth: '700px' },
+  seriesLabel: { fontSize: '12px', color: '#4caf50', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' },
+  seriesWinner: { fontSize: '28px', fontWeight: '800', color: '#f0f0f0', marginBottom: '8px' },
+  seriesRecord: { display: 'flex', justifyContent: 'center', gap: '32px', marginTop: '12px' },
+  seriesPlayerScore: { textAlign: 'center' },
+  seriesWins: { fontSize: '32px', fontWeight: '800', color: '#c9a84c' },
+  seriesPlayerName: { fontSize: '12px', color: '#666', marginTop: '4px' },
+  gameResultsRow: { display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: '700px' },
+  gameChip: { padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', textAlign: 'center' },
   rosters: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', width: '100%', maxWidth: '900px', marginBottom: '32px' },
   rosterCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', overflow: 'hidden' },
+  winnerCard: { border: '2px solid #4caf50' },
   rosterHeader: { padding: '16px 20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   rosterName: { fontSize: '16px', fontWeight: '700', color: '#f0f0f0' },
   rosterScore: { fontSize: '20px', fontWeight: '800', color: '#c9a84c' },
@@ -32,9 +37,10 @@ const styles = {
   playerName: { fontSize: '13px', fontWeight: '600', color: '#f0f0f0', flex: 1 },
   playerPts: { fontSize: '13px', fontWeight: '700', color: '#c9a84c' },
   slotLabel: { fontSize: '10px', color: '#555', width: '50px', flexShrink: 0 },
-  playAgainBtn: { background: '#c9a84c', color: '#0f0f0f', padding: '14px 32px', borderRadius: '8px', fontSize: '16px', fontWeight: '700', border: 'none', cursor: 'pointer' },
   youBadge: { fontSize: '10px', background: '#2a3a2a', color: '#4caf50', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px' },
-  winnerCard: { border: '2px solid #4caf50' },
+  btnRow: { display: 'flex', gap: '12px', marginTop: '8px' },
+  playAgainBtn: { background: '#c9a84c', color: '#0f0f0f', padding: '14px 32px', borderRadius: '8px', fontSize: '16px', fontWeight: '700', border: 'none', cursor: 'pointer' },
+  profileBtn: { background: 'transparent', color: '#c9a84c', padding: '14px 32px', borderRadius: '8px', fontSize: '16px', fontWeight: '700', border: '1px solid #c9a84c', cursor: 'pointer' },
 }
 
 const ROSTER_SLOTS = {
@@ -54,12 +60,19 @@ export default function Results() {
   const [lobby, setLobby] = useState(null)
   const [players, setPlayers] = useState([])
   const [picks, setPicks] = useState([])
+  const [gameResults, setGameResults] = useState([])
   const [scores, setScores] = useState({})
+  const [seriesWins, setSeriesWins] = useState({})
+  const [seriesWinner, setSeriesWinner] = useState(null)
 
   useEffect(() => {
     fetchResults()
     const saved = sessionStorage.getItem('finalScores')
     if (saved) setScores(JSON.parse(saved))
+    const savedWins = sessionStorage.getItem('seriesWins')
+    if (savedWins) setSeriesWins(JSON.parse(savedWins))
+    const savedWinner = sessionStorage.getItem('seriesWinner')
+    if (savedWinner) setSeriesWinner(savedWinner)
   }, [code])
 
   async function fetchResults() {
@@ -68,6 +81,7 @@ export default function Results() {
       setLobby(res.data.lobby)
       setPlayers(res.data.players)
       setPicks(res.data.picks || [])
+      setGameResults(res.data.gameResults || [])
     } catch (err) {
       console.error(err)
     }
@@ -78,7 +92,6 @@ export default function Results() {
     const slots = ROSTER_SLOTS[lobby.roster_format] || []
     const myPicks = picks.filter(p => p.username === playerUsername)
     const assigned = new Array(myPicks.length).fill(false)
-
     return slots.map(slot => {
       const pickIndex = myPicks.findIndex((pick, i) => {
         if (assigned[i]) return false
@@ -111,36 +124,63 @@ export default function Results() {
   const p2 = players[1]
   const score1 = getScore(p1.username)
   const score2 = getScore(p2.username)
-  const winner = score1 > score2 ? p1.username : score2 > score1 ? p2.username : null
-  const isTie = score1 === score2
+  const gameWinner = score1 > score2 ? p1.username : score2 > score1 ? p2.username : null
+  const finalSeriesWinner = seriesWinner || gameWinner
+  const seriesLength = lobby.series_length || 1
+  const isSeries = seriesLength > 1
+  const wins1 = seriesWins[p1.username] || (isSeries ? 0 : (gameWinner === p1.username ? 1 : 0))
+  const wins2 = seriesWins[p2.username] || (isSeries ? 0 : (gameWinner === p2.username ? 1 : 0))
 
   return (
     <div style={styles.page}>
-      <div style={styles.title}>Draft Complete!</div>
+      <div style={styles.title}>{isSeries ? 'Series Complete!' : 'Draft Complete!'}</div>
       <div style={styles.subtitle}>
         {lobby.mode === 'best_game' ? 'Best Game' : 'Best Season'} · {lobby.roster_format}
+        {isSeries ? ' · Best of ' + seriesLength : ''}
       </div>
 
-      <div style={styles.winnerBanner}>
-        {isTie ? (
-          <div style={styles.tieLabel}>It's a Tie!</div>
-        ) : (
-          <React.Fragment>
-            <div style={styles.winnerLabel}>Winner</div>
-            <div style={styles.winnerName}>
-              {winner} {winner === username && '(You)'}
+      <div style={styles.seriesBanner}>
+        <div style={styles.seriesLabel}>{isSeries ? 'Series Winner' : 'Winner'}</div>
+        <div style={styles.seriesWinner}>
+          {finalSeriesWinner
+            ? finalSeriesWinner + (finalSeriesWinner === username ? ' (You)' : '') + ' 🏆'
+            : "It's a Tie!"}
+        </div>
+        {isSeries && (
+          <div style={styles.seriesRecord}>
+            <div style={styles.seriesPlayerScore}>
+              <div style={styles.seriesWins}>{wins1}</div>
+              <div style={styles.seriesPlayerName}>{p1.username}</div>
             </div>
-            <div style={styles.winnerScore}>
-              {Math.max(score1, score2).toFixed(1)} pts
+            <div style={{ color: '#444', fontSize: '24px', alignSelf: 'center' }}>—</div>
+            <div style={styles.seriesPlayerScore}>
+              <div style={styles.seriesWins}>{wins2}</div>
+              <div style={styles.seriesPlayerName}>{p2.username}</div>
             </div>
-          </React.Fragment>
+          </div>
         )}
       </div>
+
+      {isSeries && gameResults.length > 0 && (
+        <div style={styles.gameResultsRow}>
+          {gameResults.map((result, i) => (
+            <div key={i} style={{
+              ...styles.gameChip,
+              background: result.winner === username ? '#1a2a1a' : '#2a1a1a',
+              color: result.winner === username ? '#69db7c' : '#ff6b6b',
+              border: '1px solid ' + (result.winner === username ? '#4caf50' : '#f44336')
+            }}>
+              Game {result.game_number}<br/>
+              {result.winner === username ? 'W' : 'L'} — {result.winner_score?.toFixed(1)} - {result.loser_score?.toFixed(1)}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={styles.rosters}>
         {[p1, p2].map(player => {
           const playerScore = getScore(player.username)
-          const isWinner = player.username === winner
+          const isWinner = player.username === finalSeriesWinner
           const roster = getRosterForPlayer(player.username)
           const isMe = player.username === username
 
@@ -150,7 +190,7 @@ export default function Results() {
                 <div style={styles.rosterName}>
                   {player.username}
                   {isMe && <span style={styles.youBadge}>You</span>}
-                  {isWinner && <span style={{ marginLeft: '6px', fontSize: '14px' }}>🏆</span>}
+                  {isWinner && <span style={{ marginLeft: '6px' }}>🏆</span>}
                 </div>
                 <div style={styles.rosterScore}>{playerScore.toFixed(1)} pts</div>
               </div>
@@ -163,9 +203,7 @@ export default function Results() {
                     <div style={styles.slotLabel}>{slot}</div>
                     {pick ? (
                       <React.Fragment>
-                        <div style={{ ...styles.posTag, background: posStyle.bg, color: posStyle.color }}>
-                          {pos}
-                        </div>
+                        <div style={{ ...styles.posTag, background: posStyle.bg, color: posStyle.color }}>{pos}</div>
                         <div style={styles.playerName}>{pick.player_cache?.name}</div>
                         <div style={styles.playerPts}>{pts?.toFixed(1)}</div>
                       </React.Fragment>
@@ -180,9 +218,10 @@ export default function Results() {
         })}
       </div>
 
-      <button style={styles.playAgainBtn} onClick={() => navigate('/')}>
-        Play Again
-      </button>
+      <div style={styles.btnRow}>
+        <button style={styles.playAgainBtn} onClick={() => navigate('/')}>Play Again</button>
+        <button style={styles.profileBtn} onClick={() => navigate('/profile/' + username)}>My Profile</button>
+      </div>
     </div>
   )
 }
